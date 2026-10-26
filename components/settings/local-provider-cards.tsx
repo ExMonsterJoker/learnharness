@@ -20,6 +20,7 @@ export function LocalProviderCards() {
 	// Custom form state
 	const [customUrl, setCustomUrl] = useState("http://localhost:8000/v1");
 	const [customKey, setCustomKey] = useState("");
+	const [hasSavedKey, setHasSavedKey] = useState(false);
 	const [customCtx, setCustomCtx] = useState(32768);
 	const [customTesting, setCustomTesting] = useState(false);
 	const [customSaved, setCustomSaved] = useState(false);
@@ -29,24 +30,38 @@ export function LocalProviderCards() {
 	useEffect(() => {
 		fetch("/api/settings")
 			.then((r) => r.json())
-			.then((data: { localProviders?: LocalProvidersSettings }) => {
-				if (data.localProviders) {
+			.then((data: Record<string, unknown>) => {
+				// Support top-level, data.settings, or data.effective response shapes
+				const root = (data.effective ?? data.settings ?? data) as { localProviders?: LocalProvidersSettings };
+				if (root.localProviders) {
 					setSettings((prev) => ({
-						ollama: { ...prev.ollama, ...data.localProviders?.ollama },
-						custom: { ...prev.custom, ...data.localProviders?.custom },
+						ollama: { ...prev.ollama, ...root.localProviders?.ollama },
+						custom: { ...prev.custom, ...root.localProviders?.custom },
 					}));
-					if (data.localProviders.ollama?.baseUrl) setOllamaUrl(data.localProviders.ollama.baseUrl);
-					if (data.localProviders.custom?.baseUrl) setCustomUrl(data.localProviders.custom.baseUrl);
-					if (data.localProviders.custom?.defaultContextWindow) setCustomCtx(data.localProviders.custom.defaultContextWindow);
+					if (root.localProviders.ollama?.baseUrl) setOllamaUrl(root.localProviders.ollama.baseUrl);
+					if (root.localProviders.custom?.baseUrl) setCustomUrl(root.localProviders.custom.baseUrl);
+					if (root.localProviders.custom?.defaultContextWindow) setCustomCtx(root.localProviders.custom.defaultContextWindow);
 				}
 			})
 			.catch(() => undefined);
 
 		fetch("/api/keys")
 			.then((r) => r.json())
-			.then((data: { keys?: Array<{ id: string; present: boolean }> }) => {
-				const hasKey = data.keys?.find((k) => k.id === "LOCAL_AI_API_KEY")?.present;
-				if (hasKey) setCustomKey("••••••••");
+			.then((data: unknown) => {
+				// Support array response or { keys / rows / statuses } object wrapper
+				const list = Array.isArray(data)
+					? data
+					: ((data as { keys?: unknown[]; rows?: unknown[]; statuses?: unknown[] })?.keys ??
+					   (data as { rows?: unknown[] })?.rows ??
+					   (data as { statuses?: unknown[] })?.statuses ??
+					   []);
+				const found = (list as Array<{ id?: string; present?: boolean }>).find(
+					(k) => k.id === "LOCAL_AI_API_KEY",
+				);
+				if (found?.present) {
+					setHasSavedKey(true);
+					setCustomKey("••••••••");
+				}
 			})
 			.catch(() => undefined);
 	}, []);
@@ -82,16 +97,33 @@ export function LocalProviderCards() {
 		const nextKey = key ?? customKey;
 		const nextCtx = ctx ?? customCtx;
 
+		const promises: Promise<unknown>[] = [];
+
 		if (nextKey && nextKey !== "••••••••") {
-			await fetch("/api/keys/LOCAL_AI_API_KEY", {
-				method: "PUT",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ value: nextKey }),
-			});
-			notifySettingsSaved("keys");
-		} else if (nextKey === "") {
-			await fetch("/api/keys/LOCAL_AI_API_KEY", { method: "DELETE" }).catch(() => undefined);
-			notifySettingsSaved("keys");
+			promises.push(
+				fetch("/api/keys/LOCAL_AI_API_KEY", {
+					method: "PUT",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ value: nextKey }),
+				})
+					.then((res) => {
+						if (res.ok) {
+							setHasSavedKey(true);
+							setCustomKey("••••••••");
+							notifySettingsSaved("keys");
+						}
+					})
+					.catch(() => undefined),
+			);
+		} else if (nextKey === "" && hasSavedKey) {
+			promises.push(
+				fetch("/api/keys/LOCAL_AI_API_KEY", { method: "DELETE" })
+					.then(() => {
+						setHasSavedKey(false);
+						notifySettingsSaved("keys");
+					})
+					.catch(() => undefined),
+			);
 		}
 
 		let updated: LocalProvidersSettings = settings;
@@ -103,7 +135,9 @@ export function LocalProviderCards() {
 			};
 			return updated;
 		});
-		await saveLocalSettings(updated);
+		promises.push(saveLocalSettings(updated));
+
+		await Promise.all(promises);
 		setCustomSaved(true);
 		setTimeout(() => setCustomSaved(false), 2000);
 	}
@@ -164,7 +198,7 @@ export function LocalProviderCards() {
 	const isCustomDirty = () =>
 		customUrl.trim() !== (settings.custom?.baseUrl ?? "http://localhost:8000/v1") ||
 		customCtx !== (settings.custom?.defaultContextWindow ?? 32768) ||
-		(customKey !== "" && customKey !== "••••••••");
+		customKey !== (hasSavedKey ? "••••••••" : "");
 
 	return (
 		<div className="flex flex-col gap-4" data-testid="local-provider-cards">

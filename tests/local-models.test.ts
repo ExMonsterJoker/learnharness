@@ -330,4 +330,54 @@ describe("LOCAL_AI_API_KEY resolution", () => {
 		assert.equal(localKey.present, true);
 		assert.equal(localKey.source, "file");
 	});
+
+	it("extracts localProviders across top-level, settings, and effective wrappers", () => {
+		const payload1 = { settings: { localProviders: { ollama: { enabled: true, baseUrl: "http://localhost:11434" } } } };
+		const payload2 = { effective: { localProviders: { custom: { enabled: true, baseUrl: "http://localhost:8000/v1" } } } };
+		const payload3 = { localProviders: { ollama: { enabled: false } } };
+
+		const extract = (data: Record<string, unknown>) => {
+			const root = (data.effective ?? data.settings ?? data) as { localProviders?: unknown };
+			return root.localProviders;
+		};
+
+		assert.ok(extract(payload1));
+		assert.ok(extract(payload2));
+		assert.ok(extract(payload3));
+	});
+
+	it("extracts LOCAL_AI_API_KEY across array, keys, rows, and statuses wrapper shapes", () => {
+		const matchKey = (data: unknown) => {
+			const list = Array.isArray(data)
+				? data
+				: ((data as { keys?: unknown[]; rows?: unknown[]; statuses?: unknown[] })?.keys ??
+				   (data as { rows?: unknown[] })?.rows ??
+				   (data as { statuses?: unknown[] })?.statuses ??
+				   []);
+			return (list as Array<{ id?: string; present?: boolean }>).find((k) => k.id === "LOCAL_AI_API_KEY")?.present ?? false;
+		};
+
+		assert.equal(matchKey({ keys: [{ id: "LOCAL_AI_API_KEY", present: true }] }), true);
+		assert.equal(matchKey({ rows: [{ id: "LOCAL_AI_API_KEY", present: true }] }), true);
+		assert.equal(matchKey({ statuses: [{ id: "LOCAL_AI_API_KEY", present: true }] }), true);
+		assert.equal(matchKey([{ id: "LOCAL_AI_API_KEY", present: true }]), true);
+		assert.equal(matchKey({ keys: [{ id: "OTHER_KEY", present: true }] }), false);
+	});
+
+	it("dirty check accurately guards saved vs cleared vs new keys", () => {
+		const isKeyDirty = (customKey: string, hasSavedKey: boolean) =>
+			customKey !== (hasSavedKey ? "••••••••" : "");
+
+		// Hydrated with saved key: mask is clean
+		assert.equal(isKeyDirty("••••••••", true), false);
+		// User clears saved key: dirty (must trigger deletion on save)
+		assert.equal(isKeyDirty("", true), true);
+		// User enters new key: dirty (must trigger PUT on save)
+		assert.equal(isKeyDirty("my-new-token", true), true);
+
+		// Unhydrated or no saved key: empty is clean
+		assert.equal(isKeyDirty("", false), false);
+		// User enters key when previously none existed: dirty
+		assert.equal(isKeyDirty("new-token", false), true);
+	});
 });

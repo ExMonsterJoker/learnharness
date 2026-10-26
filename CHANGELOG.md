@@ -32,3 +32,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Ensured `PUT /api/settings/localProviders` synchronously triggers `refreshConnectionCatalog()` so toggling a provider ON or OFF immediately updates `piModels()`.
 - Prevented race conditions between input `onBlur` and "Test & Discover" clicks by checking dirty state and testing status.
 - Ensured cold-start chats await connection catalog refresh when the active model is from a local provider (`ollama` or `custom`).
+- Fixed visual hydration and accidental backend deletion of `LOCAL_AI_API_KEY` on settings tab remount by explicitly tracking saved key presence, normalizing response envelopes, and refining dirty-state checks.
