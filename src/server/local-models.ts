@@ -10,6 +10,8 @@ export interface OllamaCachedMetadata {
 
 export const ollamaShowCache = new Map<string, OllamaCachedMetadata>();
 
+export const VISION_MODEL_RE = /(?<![a-z])vl(?![a-z])|vision|4o|pixtral|llava|moondream|mllama|minicpm|cogvlm|glm-4v|internvl/i;
+
 export function clearOllamaShowCache(): void {
 	ollamaShowCache.clear();
 }
@@ -91,11 +93,10 @@ export async function probeOllama(
 					if (!showRes.ok) {
 						const fallbackMeta: OllamaCachedMetadata = {
 							contextWindow: defaultContextWindow,
-							isVision: /llava|vision|vl|moondream|mllama|minicpm|cogvlm|glm-4v|internvl|pixtral/i.test(m.name),
+							isVision: VISION_MODEL_RE.test(m.name),
 							isReasoning: /r1|qwq|reasoner/i.test(m.name),
 							isEmbeddingOnly: /bert|bge|embed/i.test(m.details?.family ?? "") || /nomic-embed|bge-|embed/i.test(m.name),
 						};
-						ollamaShowCache.set(cacheKey, fallbackMeta);
 						return { model: m, meta: fallbackMeta };
 					}
 
@@ -106,7 +107,7 @@ export async function probeOllama(
 						/bert|bge|embed/i.test(show.details?.family ?? m.details?.family ?? "") ||
 						/nomic-embed|bge-|embed/i.test(m.name);
 
-					const isVision = Boolean(caps?.includes("vision")) || /llava|vision|vl|moondream|mllama|minicpm|cogvlm|glm-4v|internvl|pixtral/i.test(m.name);
+					const isVision = Boolean(caps?.includes("vision")) || VISION_MODEL_RE.test(m.name);
 					const isReasoning = Boolean(caps?.includes("thinking")) || /r1|qwq|reasoner/i.test(m.name);
 					const contextWindow = extractOllamaContextWindow(show, defaultContextWindow);
 
@@ -121,11 +122,10 @@ export async function probeOllama(
 				} catch {
 					const fallbackMeta: OllamaCachedMetadata = {
 						contextWindow: defaultContextWindow,
-						isVision: /llava|vision|vl|moondream|mllama|minicpm|cogvlm|glm-4v|internvl|pixtral/i.test(m.name),
+						isVision: VISION_MODEL_RE.test(m.name),
 						isReasoning: /r1|qwq|reasoner/i.test(m.name),
 						isEmbeddingOnly: /bert|bge|embed/i.test(m.details?.family ?? "") || /nomic-embed|bge-|embed/i.test(m.name),
 					};
-					ollamaShowCache.set(cacheKey, fallbackMeta);
 					return { model: m, meta: fallbackMeta };
 				}
 			}),
@@ -207,7 +207,7 @@ export async function probeVLLM(
 				(typeof entry.meta?.n_ctx_train === "number" && entry.meta.n_ctx_train > 0 ? entry.meta.n_ctx_train : undefined) ??
 				defaultContextWindow;
 
-			const isVision = /vl|vision|4o|pixtral|llava|moondream|mllama|minicpm|cogvlm|glm-4v|internvl/i.test(entry.id);
+			const isVision = VISION_MODEL_RE.test(entry.id);
 			const isReasoning = /r1|qwq|reasoner|o1|o3/i.test(entry.id);
 			const maxTokens = Math.min(4096, Math.max(512, Math.floor(contextWindow / 2)));
 

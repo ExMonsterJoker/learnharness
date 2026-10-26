@@ -62,22 +62,25 @@ export function LocalProviderCards() {
 	}
 
 	async function saveOllama(url?: string, enabled?: boolean) {
-		const nextUrl = url ?? ollamaUrl;
-		const nextEnabled = enabled ?? Boolean(settings.ollama?.enabled);
-		const updated: LocalProvidersSettings = {
-			...settings,
-			ollama: { ...settings.ollama, enabled: nextEnabled, baseUrl: nextUrl },
-		};
+		const nextUrl = (url ?? ollamaUrl).trim();
+		let updated: LocalProvidersSettings = settings;
+		setSettings((prev) => {
+			const nextEnabled = enabled ?? Boolean(prev.ollama?.enabled);
+			updated = {
+				...prev,
+				ollama: { ...prev.ollama, enabled: nextEnabled, baseUrl: nextUrl },
+			};
+			return updated;
+		});
 		await saveLocalSettings(updated);
 		setOllamaSaved(true);
 		setTimeout(() => setOllamaSaved(false), 2000);
 	}
 
 	async function saveCustom(url?: string, key?: string, ctx?: number, enabled?: boolean) {
-		const nextUrl = url ?? customUrl;
+		const nextUrl = (url ?? customUrl).trim();
 		const nextKey = key ?? customKey;
 		const nextCtx = ctx ?? customCtx;
-		const nextEnabled = enabled ?? Boolean(settings.custom?.enabled);
 
 		if (nextKey && nextKey !== "••••••••") {
 			await fetch("/api/keys/LOCAL_AI_API_KEY", {
@@ -91,10 +94,15 @@ export function LocalProviderCards() {
 			notifySettingsSaved("keys");
 		}
 
-		const updated: LocalProvidersSettings = {
-			...settings,
-			custom: { ...settings.custom, enabled: nextEnabled, baseUrl: nextUrl, defaultContextWindow: nextCtx },
-		};
+		let updated: LocalProvidersSettings = settings;
+		setSettings((prev) => {
+			const nextEnabled = enabled ?? Boolean(prev.custom?.enabled);
+			updated = {
+				...prev,
+				custom: { ...prev.custom, enabled: nextEnabled, baseUrl: nextUrl, defaultContextWindow: nextCtx },
+			};
+			return updated;
+		});
 		await saveLocalSettings(updated);
 		setCustomSaved(true);
 		setTimeout(() => setCustomSaved(false), 2000);
@@ -153,6 +161,11 @@ export function LocalProviderCards() {
 		}
 	}
 
+	const isCustomDirty = () =>
+		customUrl.trim() !== (settings.custom?.baseUrl ?? "http://localhost:8000/v1") ||
+		customCtx !== (settings.custom?.defaultContextWindow ?? 32768) ||
+		(customKey !== "" && customKey !== "••••••••");
+
 	return (
 		<div className="flex flex-col gap-4" data-testid="local-provider-cards">
 			{/* Ollama Card */}
@@ -175,7 +188,11 @@ export function LocalProviderCards() {
 							type="text"
 							value={ollamaUrl}
 							onChange={(e) => setOllamaUrl(e.target.value)}
-							onBlur={() => void saveOllama()}
+							onBlur={() => {
+								if (!ollamaTesting && ollamaUrl.trim() !== (settings.ollama?.baseUrl ?? "http://localhost:11434")) {
+									void saveOllama();
+								}
+							}}
 							onKeyDown={(e) => {
 								if (e.key === "Enter") void saveOllama();
 							}}
@@ -258,7 +275,11 @@ export function LocalProviderCards() {
 							type="text"
 							value={customUrl}
 							onChange={(e) => setCustomUrl(e.target.value)}
-							onBlur={() => void saveCustom()}
+							onBlur={() => {
+								if (!customTesting && isCustomDirty()) {
+									void saveCustom();
+								}
+							}}
 							onKeyDown={(e) => {
 								if (e.key === "Enter") void saveCustom();
 							}}
@@ -270,7 +291,11 @@ export function LocalProviderCards() {
 							type="password"
 							value={customKey}
 							onChange={(e) => setCustomKey(e.target.value)}
-							onBlur={() => void saveCustom()}
+							onBlur={() => {
+								if (!customTesting && isCustomDirty()) {
+									void saveCustom();
+								}
+							}}
 							onKeyDown={(e) => {
 								if (e.key === "Enter") void saveCustom();
 							}}
@@ -286,7 +311,11 @@ export function LocalProviderCards() {
 							type="number"
 							value={customCtx}
 							onChange={(e) => setCustomCtx(Number(e.target.value) || 32768)}
-							onBlur={() => void saveCustom()}
+							onBlur={() => {
+								if (!customTesting && isCustomDirty()) {
+									void saveCustom();
+								}
+							}}
 							onKeyDown={(e) => {
 								if (e.key === "Enter") void saveCustom();
 							}}

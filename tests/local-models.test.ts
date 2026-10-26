@@ -10,6 +10,7 @@ import {
 	ollamaShowCache,
 	probeOllama,
 	probeVLLM,
+	VISION_MODEL_RE,
 } from "../src/server/local-models.ts";
 import {
 	clearLocalProvider,
@@ -115,6 +116,49 @@ describe("probeOllama discovery", () => {
 		assert.ok(res2.ok);
 		assert.equal(showCalls, initialShowCalls, "cached models should not re-query /api/show");
 	});
+
+	it("does not cache transient show failures in ollamaShowCache", async () => {
+		let attempts = 0;
+		const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
+			const url = String(input);
+			if (url.endsWith("/api/tags")) {
+				return new Response(
+					JSON.stringify({
+						models: [{ name: "temp-model:latest", digest: "sha256:temp123" }],
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				);
+			}
+			if (url.endsWith("/api/show")) {
+				attempts++;
+				if (attempts === 1) {
+					// Simulate transient timeout / 500 error
+					return new Response("Internal Server Error", { status: 500 });
+				}
+				return new Response(
+					JSON.stringify({
+						capabilities: ["completion", "vision"],
+						parameters: "num_ctx 16384",
+					}),
+					{ status: 200, headers: { "Content-Type": "application/json" } },
+				);
+			}
+			return new Response("Not found", { status: 404 });
+		};
+
+		const res1 = await probeOllama("http://localhost:11434", 4096, mockFetch as typeof fetch);
+		assert.ok(res1.ok);
+		// Transient failure should NOT have been cached
+		assert.equal(ollamaShowCache.has("temp-model:latest:sha256:temp123"), false);
+
+		// Second attempt succeeds and caches the actual metadata
+		const res2 = await probeOllama("http://localhost:11434", 4096, mockFetch as typeof fetch);
+		assert.ok(res2.ok);
+		assert.equal(ollamaShowCache.has("temp-model:latest:sha256:temp123"), true);
+		const cached = ollamaShowCache.get("temp-model:latest:sha256:temp123");
+		assert.equal(cached?.contextWindow, 16384);
+		assert.equal(cached?.isVision, true);
+	});
 });
 
 describe("probeVLLM discovery", () => {
@@ -169,6 +213,22 @@ describe("probeVLLM discovery", () => {
 		assert.ok(res.ok);
 		assert.equal(res.models.length, 3);
 		assert.ok(res.models.every((m) => m.input.includes("image")), "all should be detected as vision capable");
+	});
+
+	it("VISION_MODEL_RE discriminates vl without false positives on vllm, eval, or novel", () => {
+		// Negative cases (should NOT be detected as vision)
+		assert.equal(VISION_MODEL_RE.test("vllm/Qwen2.5-Coder-7B"), false);
+		assert.equal(VISION_MODEL_RE.test("vllm-llama3-instruct"), false);
+		assert.equal(VISION_MODEL_RE.test("meta-llama/Llama-3.1-8B-eval"), false);
+		assert.equal(VISION_MODEL_RE.test("novel-writer-14b"), false);
+
+		// Positive cases (should be detected as vision)
+		assert.equal(VISION_MODEL_RE.test("Qwen/Qwen2-VL-7B-Instruct"), true);
+		assert.equal(VISION_MODEL_RE.test("qwen2.5_vl_7b"), true);
+		assert.equal(VISION_MODEL_RE.test("openbmb/MiniCPM-V-2_6"), true);
+		assert.equal(VISION_MODEL_RE.test("THUDM/glm-4v-9b"), true);
+		assert.equal(VISION_MODEL_RE.test("OpenGVLab/InternVL2-8B"), true);
+		assert.equal(VISION_MODEL_RE.test("mistralai/Pixtral-12B-2409"), true);
 	});
 });
 
