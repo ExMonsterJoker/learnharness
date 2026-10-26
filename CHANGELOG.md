@@ -27,3 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Fixed an issue where local provider endpoints and API keys were not persisted when switching tabs without running discovery.
 - Fixed an issue where the Vision slot dropdown was empty when only text models were active, blocking chat initialization.
+- Guarded vision regex so `vl` is letter-bounded (`/(?<![a-z])vl(?![a-z])/i`) to prevent false-positive multimodal classification on models with names containing `vllm`, `eval`, or `novel`.
+- Prevented transient `/api/show` timeouts or HTTP errors from being cached in `ollamaShowCache`.
+- Ensured `PUT /api/settings/localProviders` synchronously triggers `refreshConnectionCatalog()` so toggling a provider ON or OFF immediately updates `piModels()`.
+- Prevented race conditions between input `onBlur` and "Test & Discover" clicks by checking dirty state and testing status.
+- Ensured cold-start chats await connection catalog refresh when the active model is from a local provider (`ollama` or `custom`).
